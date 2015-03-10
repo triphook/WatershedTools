@@ -4,7 +4,8 @@ import numpy as np
 import gdal, ogr
 import sys
 import collections
-
+import os
+import csv
 
 # Object representing a simple bounding rectangle
 class Envelope(object):
@@ -53,10 +54,10 @@ class Raster(object):
             precision = len(str(int(self.max_val)))
         self.precision = 10 ** precision
         self.envelope = None
-        self._array = "null"
+        self._array = np.array([])
 
     def array(self, envelope, zero_min=True):
-        if self._array == "null" or envelope != self.envelope:
+        if not self._array.size or envelope != self.envelope:
             offset_x = (envelope.left - self.shape.left)
             offset_y = (self.shape.top - envelope.top)
             x_max = (envelope.right - envelope.left)
@@ -150,7 +151,7 @@ def allocate(allocation_raster, zone_rasters, tile='max'):
 
     for envelope in make_tiles(overlap_area, tile):
         # Generate combined array and set precision adjustments
-        all_rasters = sorted(zone_rasters + [allocation_raster], key=lambda r: r.precision, reverse=True)
+        all_rasters = sorted(zone_rasters + [allocation_raster], key=lambda x: x.precision, reverse=True)
         combined_array = np.int64(allocation_raster.array(envelope))
         for i, raster in enumerate(zone_rasters):
             raster.adjust = np.prod([r.precision for r in all_rasters[i + 1:]])
