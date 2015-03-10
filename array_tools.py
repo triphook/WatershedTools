@@ -256,7 +256,7 @@ def write_to_file(output_dict, outfile_name, translate=None, id_field='COMID'):
     if not os.path.exists(os.path.dirname(outfile_name)):
         os.mkdir(os.path.dirname(outfile_name))
     with open(outfile_name, 'wb') as f:
-        classes = set([_class for row in output_dict.values() for _class in row.keys()]) # all classes in allocation
+        classes = set([_class for row in output_dict.values() for _class in row.keys()])  # all classes in allocation
         header = format_keys([id_field] + sorted(classes))
         writer = csv.DictWriter(f, header)
         writer.writeheader()
