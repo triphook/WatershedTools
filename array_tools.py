@@ -79,9 +79,25 @@ class Reach(object):
         self.parent = None
         self.children = set()
         self._upstream = set()
+        self._paths = []
+
+        self.length = 0  # meters
+        self.velocity = 0  # meters
+        self._time = -1  # seconds
 
     def __repr__(self):
         return "Reach({})".format(self.name)
+
+    @property
+    def time(self):
+        if self._time != -1:
+            return self._time
+        else:
+            if self.length and self.velocity:
+                self._time = self.length / self.velocity
+            else:
+                self._time = 0
+            return self._time
 
     # Recursively search upstream in the drainage network, returns a set of all upstream reaches
     @property
@@ -94,53 +110,47 @@ class Reach(object):
                 self._upstream |= child.upstream
             return self._upstream
 
+    # Recursively search upstream in the drainage network, returns a set of all paths upstream
+    def upstream_paths(self, h):
+        def look_upstream(n):
+            if not h[n].children:
+                self._paths.append(current_path[:])
+            for child in h[n].children:
+                current_path.append(child)
+                look_upstream(child.name)
+            if current_path:
+                current_path.pop()
+        if self._paths:
+            return self._paths
+        else:
+            current_path = [self]
+            look_upstream(self.name)
+            return self._paths
+
+    def time_maps(self, h):
+        paths = self.upstream_paths(h)
+        time_maps = [zip(path, np.cumsum([reach.time for reach in path])) for path in paths]
+        items = {s for time_map in time_maps for s in time_map}
+        return items
+
 
 # Accumulates class areas for all reaches upstream of each reach
 def accumulate(allocated_data, flow_table, translate=None, excl_params=None, excl_field=None, excl_vals=None):
-
-    def build_hierarchy(from_field="FROMCOMID", to_field="TOCOMID", id_field="COMID"):
-        # Read from/to relationships in flow table
-        flows = read_dbf(flow_table, [from_field, to_field])
-
-        # Exclude flows that meet certain criteria (e.g., exclude streams where FCODE is 56600 (coastline)
-        if all((excl_params, excl_field, excl_vals)):
-            params = read_dbf(excl_params, [id_field, excl_field])
-            # This bit is necessary because some NHD plus regions have different capitalization patterns
-            if not params:
-                params = dict(read_dbf(excl_params, ['ComID', "FCode"]))
-            params = dict(params)
-            flows = [flow for flow in flows if not set(excl_vals) & set(map(lambda x: params.get(x), flow))]
-
-        # Translate COMID into another field for processing (usually GRIDCODE for raster catchments)
-        if translate:
-            flows = [map(lambda x: translate.get(x), row) for row in flows]
-
-        # Build hierarchy
-        hierarchy = collections.defaultdict(lambda: Reach())
-        for reach_id, parent in flows:
-            if reach_id:
-                hierarchy[reach_id].name = reach_id
-                hierarchy[parent].name = parent
-                hierarchy[reach_id].parent = hierarchy[parent]
-                hierarchy[parent].children.add(hierarchy[reach_id])
-
-        return filter(lambda reach: bool(reach.name), hierarchy.values())
-
-    def accumulate_data():
-        accumulated = collections.defaultdict(dict)
-        for reach in iter(reaches):
-            us_reaches = set([reach.name] + [r.name for r in reach.upstream])
-            accumulated[reach.name] = sum([allocated_data.get(r, 0.0) for r in us_reaches])
-        return accumulated
-
     sys.setrecursionlimit(50000)
-    reaches = build_hierarchy()
-    out_array = accumulate_data()
-    return out_array
+    reaches = build_hierarchy(flow_table, excl_params, excl_field, excl_vals, translate)
+    accumulated = collections.defaultdict(dict)
+    for reach in iter(reaches):
+        us_reaches = set([reach.name] + [r.name for r in reach.upstream])
+        accumulated[reach.name] = sum([allocated_data.get(r, 0.0) for r in us_reaches])
+    return accumulated
 
 
 # Allocates raster classes to a set of overlapping zones
 def allocate(allocation_raster, zone_rasters, tile='max'):
+
+    # Accept single raster as input
+    if not type(zone_rasters) in (list, set):
+        zone_rasters = [zone_rasters]
 
     # Overlap rasters and create envelope covering common areas
     overlap_area = allocation_raster.shape
@@ -149,6 +159,7 @@ def allocate(allocation_raster, zone_rasters, tile='max'):
         if not overlap_area:
             sys.exit("Zone and allocation rasters do not overlap")
 
+    finished = np.array([])
     for envelope in make_tiles(overlap_area, tile):
         # Generate combined array and set precision adjustments
         all_rasters = sorted(zone_rasters + [allocation_raster], key=lambda x: x.precision, reverse=True)
@@ -162,8 +173,44 @@ def allocate(allocation_raster, zone_rasters, tile='max'):
         zones, counts = np.unique(combined_array.flat, return_counts=True)  # Cells in each zone and class
         zones = np.array([(zones / r.adjust) - ((zones / r.adjust) / r.precision) * r.precision for r in all_rasters])
         counts *= (allocation_raster.cell_size ** 2)  # Convert cell count to area
-        finished = np.vstack((zones, counts))[:, (zones[0] > 0) & (zones[1] > 0)]
-        return finished
+        final = np.vstack((zones, counts))[:, (zones[0] > 0) & (zones[1] > 0)]
+        if finished.size:
+            finished = finished.hstack(final)
+        else:
+            finished = final
+
+    return finished
+
+
+def build_hierarchy(flow_table, from_field="FROMCOMID", to_field="TOCOMID", id_field="COMID",
+                    excl_params=None, excl_field=None, excl_vals=None, translate=None):
+
+    # Read from/to relationships in flow table
+    flows = read_dbf(flow_table, [from_field, to_field])
+
+    # Exclude flows that meet certain criteria (e.g., exclude streams where FCODE is 56600 (coastline)
+    if all((excl_params, excl_field, excl_vals)):
+        params = read_dbf(excl_params, [id_field, excl_field])
+        # This bit is necessary because some NHD plus regions have different capitalization patterns
+        if not params:
+            params = dict(read_dbf(excl_params, ['ComID', "FCode"]))
+        params = dict(params)
+        flows = [flow for flow in flows if not set(excl_vals) & set(map(lambda x: params.get(x), flow))]
+
+    # Translate COMID into another field for processing (usually GRIDCODE for raster catchments)
+    if translate:
+        flows = [map(lambda x: translate.get(x), row) for row in flows]
+
+    # Build hierarchy
+    hierarchy = collections.defaultdict(lambda: Reach())
+    for reach_id, parent in flows:
+        if reach_id:
+            hierarchy[reach_id].name = reach_id
+            hierarchy[parent].name = parent
+            hierarchy[reach_id].parent = hierarchy[parent]
+            hierarchy[parent].children.add(hierarchy[reach_id])
+
+    return filter(lambda reach: bool(reach.name), hierarchy.values())
 
 
 # Divides a bounding envelope into smaller tiles for processing on less powerful computers
@@ -186,7 +233,7 @@ def mean(iterable):
 
 # Allows the initialization of a nested dictionary
 def nested_dict():
-    return collections.defaultdict(dict)
+    return collections.defaultdict(nested_dict)
 
 
 # Reads the contents of a dbf table
@@ -226,12 +273,28 @@ def read_translation(tf, from_field, to_field, flip=False):
         return comid_to_gridcode
 
 
+# Breaks down an allocation array into a nested dictionary
+def make_histogram(output_array):
+    output_dict = nested_dict()
+    for row in output_array.T:
+        row = list(row)
+        top = row.pop(0)
+        active_d = row.pop()
+        for i in range(len(row)):
+            active_d = {row.pop(): active_d}
+        output_dict[top].update(active_d)
+    return output_dict
+
+
 # Sums all values for each group
-def sum_by_group(groups, values):
+def sum_by_group(groups, values, oper='sum'):
     order = np.argsort(groups)
     groups = groups[order]
     values = values[order]
-    values.cumsum(out=values)
+    if oper == 'sum':
+        values.cumsum(out=values)
+    elif oper == 'prod':
+        values.cumprod(out=values)
     index = np.ones(len(groups), 'bool')
     index[:-1] = groups[1:] != groups[:-1]
     values = values[index]
@@ -240,7 +303,7 @@ def sum_by_group(groups, values):
     return np.vstack((groups, values))
 
 
-# Write dictionary to csv file
+# Write dictionary or NumPy array to csv file
 def write_to_file(output_dict, outfile_name, translate=None, id_field='COMID'):
 
     def is_num(x):
@@ -255,6 +318,7 @@ def write_to_file(output_dict, outfile_name, translate=None, id_field='COMID'):
 
     if not os.path.exists(os.path.dirname(outfile_name)):
         os.mkdir(os.path.dirname(outfile_name))
+
     with open(outfile_name, 'wb') as f:
         classes = set([_class for row in output_dict.values() for _class in row.keys()])  # all classes in allocation
         header = format_keys([id_field] + sorted(classes))
