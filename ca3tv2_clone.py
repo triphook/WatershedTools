@@ -28,33 +28,33 @@ def nhd_batch(allocation_dir, nhd_dir, output_dir, accumulate=True, overwrite=Tr
 
     allocation_files, hydro_files = assemble_batch()
     for allocation_file in allocation_files:
-        file_start = time.time()
-        basename = os.path.basename(allocation_file)
-        print "Processing file {}...".format(allocation_file)
-        for region in sorted(hydro_files.keys()):
-            region_start = time.time()
-            print "\tProcessing region {}...".format(region)
-            output_basename = os.path.join(output_dir, "{}_{}.csv".format(basename, region))
-            if not os.path.exists(output_basename) or overwrite:
-                try:
-                    catchment_raster, flow_table, translation_file, nhd_file = hydro_files[region]
-                    translate_f, translate_b = read_translation(translation_file, "FEATUREID", "GRIDCODE", flip=True)
-                    allocation_dict = allocate(allocation_file, catchment_raster)
-                    if accumulate:
-                        excl_f, excl_v = 'FCODE', [56600]
-                        allocation_dict = accumulate(allocation_dict, flow_table, translate_f, nhd_file, excl_f, excl_v)
-                    write_to_file(allocation_dict, output_basename, translate_b)
-                    print "\tRegion complete in {} seconds".format(int(time.time() - region_start))
-                except:
-                    print "Failure"
-            else:
-                print "\t...already processed"
-        print "File complete in {} seconds".format(int(time.time() - file_start))
+        if not allocation_file.endswith("info"):
+            file_start = time.time()
+            basename = os.path.basename(allocation_file)
+            print "Processing file {}...".format(allocation_file)
+            for region in sorted(hydro_files.keys()):
+                if not region == "08":
+                    region_start = time.time()
+                    print "\tProcessing region {}...".format(region)
+                    output_basename = os.path.join(output_dir, "{}_{}.csv".format(basename, region))
+                    if not os.path.exists(output_basename) or overwrite:
+                        catchment_raster, flow_table, translation_file, nhd_file = hydro_files[region]
+                        translate_f, translate_b = read_translation(translation_file, "FEATUREID", "GRIDCODE", flip=True)
+                        allocation_dict = allocate(Raster(allocation_file), Raster(catchment_raster), tile=1000000)
+                        if accumulate:
+                            excl_f, excl_v = 'FCODE', [56600]
+                            allocation_dict = accumulate(allocation_dict, flow_table, translate_f, nhd_file, excl_f, excl_v)
+                        output = make_histogram(allocation_dict)
+                        write_to_file(output, output_basename, translate_b)
+                        print "\tRegion complete in {} seconds".format(int(time.time() - region_start))
+                    else:
+                        print "\t...already processed"
+            print "File complete in {} seconds".format(int(time.time() - file_start))
 
 def main():
-    allocation_directory = r"G:\NationalData\CDL\CDL_Finals"
+    allocation_directory = r"G:\WARP\Data\Projected"
     nhd_directory = r"G:\NationalData\NHDPlusV2"
-    output_directory = r"G:\CA3T\OutputFiles"
+    output_directory = r"G:\WARP\Outputs"
     accumulate = False
     overwrite_output = False
     region_filter = 'all'

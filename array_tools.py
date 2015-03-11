@@ -160,13 +160,14 @@ def allocate(allocation_raster, zone_rasters, tile='max'):
             sys.exit("Zone and allocation rasters do not overlap")
 
     finished = np.array([])
-    for envelope in make_tiles(overlap_area, tile):
+    tiles = make_tiles(overlap_area, tile)
+    for tile in tiles:
         # Generate combined array and set precision adjustments
         all_rasters = sorted(zone_rasters + [allocation_raster], key=lambda x: x.precision, reverse=True)
-        combined_array = np.int64(allocation_raster.array(envelope))
+        combined_array = np.int64(allocation_raster.array(tile))
         for i, raster in enumerate(zone_rasters):
             raster.adjust = np.prod([r.precision for r in all_rasters[i + 1:]])
-            combined_array += np.int64(raster.array(envelope) * raster.adjust)
+            combined_array += np.int64(raster.array(tile) * raster.adjust)
         allocation_raster.adjust = 1
 
         # Break down combined array to get zones and classes
@@ -175,7 +176,7 @@ def allocate(allocation_raster, zone_rasters, tile='max'):
         counts *= (allocation_raster.cell_size ** 2)  # Convert cell count to area
         final = np.vstack((zones, counts))[:, (zones[0] > 0) & (zones[1] > 0)]
         if finished.size:
-            finished = finished.hstack(final)
+            finished = np.hstack((finished, final))
         else:
             finished = final
 
@@ -220,7 +221,7 @@ def make_tiles(envelope, tile_size):
     else:
         h = range(int(envelope.left), int(envelope.right), tile_size) + [envelope.right]
         v = range(int(envelope.bottom), int(envelope.top), tile_size) + [envelope.top]
-        return [Envelope(h[i], h[i + 1], v[j + 1], v[j]) for i in range(len(h) - 1) for j in range(len(v) - 1)]
+        return [Envelope(h[i], h[i + 1], v[j], v[j + 1]) for i in range(len(h) - 1) for j in range(len(v) - 1)]
 
 
 # Returns the average of a sequence
