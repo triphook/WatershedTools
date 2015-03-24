@@ -7,7 +7,7 @@ def ca3t(nhd_dir, allocation_file, output_dir, overwrite):
     basename = os.path.basename(allocation_file)
     for region, path in sorted(nhd_files.iteritems()):
         region_start = time.time()
-        print "\tProcessing region {}..."format(region)
+        print "\tProcessing region {}...".format(region)
         output_basename = os.path.join(output_dir, "{}_{}.csv".format(basename, region))
         if not os.path.exists(output_basename) or overwrite:
             catchment_raster = Raster(os.path.join(path, "NHDPlusCatchment", "cat"))
