@@ -40,25 +40,57 @@ class Envelope(object):
         return (self.left, self.right, self.bottom, self.top) == (other.left, other.right, other.bottom, other.top)
 
 
-class NHDRegion(object):
-    def __init__(self, paths_file, table_file):
+class Navigator(object):
+    def __init__(self, paths_file):
         data = np.load(paths_file)
-        self.paths, self.path_map, self.alias_to_reach = data['paths'], data['path_map'], data['alias_to_reach']
-        self.gridcode_to_alias = np.load(table_file)['gc_lookup']['alias']
-        self.n_reaches = self.alias_to_reach.size
-        self.stored_lookups = {}
+        self.paths, self.path_map, self.start_cols, self.alias_to_comid = \
+            data['paths'], data['path_map'], data['start_cols'], data['conversion_array']
+        self.n_reaches = self.alias_to_comid.size
+        self.comid_to_alias = dict(zip(self.alias_to_comid, np.arange(self.n_reaches)))
 
-    def all_upstream(self, alias):
-        start_row, end_row, _ = map(int, self.path_map[alias])  # 7.6
-        first_path = self.paths[start_row]
-        try:  # This is a bandaid for a problem that just popped up.  To be removed.
-            start_index = list(first_path).index(alias)
-        except:
-            start_index = None
-        if start_index and all((start_row, end_row)):
-            return np.concatenate([first_path[start_index:]] + list(self.paths[start_row + 1:end_row]))
-        else:
-            return np.array([])
+        a = (self.start_cols == 0)
+        self.last_outlet = np.where(a)[0][a.cumsum() - 1]
+
+    def all_upstream(self, reach, mode='comid'):
+        reach = self._format_input(reach, mode)
+        start_row, end_row, col = map(int, self.path_map[reach])
+        start_col = list(self.paths[start_row]).index(reach)
+        upstream_reaches = list(self.paths[start_row:end_row])
+        upstream_reaches.append(self.paths[start_row][start_col:])
+        output = np.concatenate(upstream_reaches)
+        return self._format_output(output, mode)
+
+    def all_downstream(self, reach, mode='comid'):
+        reach = self._format_input(reach, mode)
+        start_row, _, _ = map(int, self.path_map[reach])
+        last_outlet = self.last_outlet[start_row]
+        start_cols = self.start_cols[last_outlet:start_row + 1]
+        active_paths = np.where(start_cols == np.minimum.accumulate(start_cols[::-1])[::-1])[0] + last_outlet
+        output = np.zeros((start_cols[-1] + len(self.paths[start_row])) * 1.5, dtype=np.int32)
+        for i, start, end in zip(active_paths, self.start_cols[active_paths], self.start_cols[active_paths][1:]):
+            output[start:end] = self.paths[i][:end - start]
+        return self._format_output(output[output > 0], mode)
+
+    def upstream_paths(self, reach, mode='comid'):
+        reach = self._format_input(reach, mode)
+        start_row, end_row, _ = map(int, self.path_map[reach])
+        path = np.zeros(max(map(lambda x: self.start_cols[x] + self.paths[x].size, range(start_row, end_row))),
+                        dtype=np.int32)
+        baseline = self.start_cols[start_row]
+        for i in range(start_row, end_row - 1):
+            stub = self.paths[i]
+            start_col = self.start_cols[i] - baseline
+            path[start_col:] = 0
+            path[start_col:start_col + stub.size] = stub
+            output = path[path != 0]
+            yield self._format_output(output, mode)
+
+    def _format_input(self, reach_id, mode):
+        return reach_id if mode == 'alias' else self.comid_to_alias[reach_id]
+
+    def _format_output(self, output, mode):
+        return output if mode == 'alias' else self.alias_to_comid[output]
+
 
 class Raster(object):
     def __init__(self, path, no_data=255):
@@ -137,17 +169,17 @@ def write_to_file(results, out_file, zone_ids, out_format="csv"):
 def main():
     # Specify paths here
     allocation_raster = r"T:\NationalData\NLCD_2011\nlcd_2011_landcover_2011_edition_2014_10_10.img"
+    nhd_dir = r"T:\NationalData\NHDPlusV2"
+
     for region_id in ['01', '02', '03N', '03S', '03W', '04', '05', '06', '07', '08', '09',
                       '10U', '10L', '11', '12', '13', '14', '15', '16', '17', '18']:
-        region_dir = r"T:\NationalData\NHDPlusV2\NHDPlus{}".format(region_id)
+        region_dir = os.path.join(nhd_dir, r"NHDPlus{}".format(region_id))
         output_file_root = r"..\Output\region_{}".format(region_id)
 
         catchment_raster = os.path.join(region_dir, "NHDPlusCatchment", "cat")
-        topology_file = r"..\Preprocessed\WatershedTopology\upstream_{}_new.npz".format(region_id)
-        id_lookup_file = r"..\Preprocessed\ReachID\id_lookup_{}.npz".format(region_id)
+        topology_file = r"..\Preprocessed\WatershedTopology\upstream_{}.npz".format(region_id)
 
-
-        region = NHDRegion(topology_file, id_lookup_file)
+        region = Navigator(topology_file)
         allocation = allocate(Raster(allocation_raster), Raster(catchment_raster), region, tile_size=300000)
         accumulation = histogram(allocation, region)
         write_to_file(allocation, output_file_root + "_alloc.csv", region.alias_to_reach)
@@ -158,7 +190,7 @@ if __name__ == "__main__":
     time_it = True
     if time_it:
         import cProfile
+
         cProfile.run("main()")
     else:
         main()
-
