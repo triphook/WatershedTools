@@ -47,7 +47,6 @@ class Navigator(object):
             data['paths'], data['path_map'], data['start_cols'], data['conversion_array']
         self.n_reaches = self.alias_to_comid.size
         self.comid_to_alias = dict(zip(self.alias_to_comid, np.arange(self.n_reaches)))
-
         a = (self.start_cols == 0)
         self.last_outlet = np.where(a)[0][a.cumsum() - 1]
 
@@ -55,7 +54,7 @@ class Navigator(object):
         reach = self._format_input(reach, mode)
         start_row, end_row, col = map(int, self.path_map[reach])
         start_col = list(self.paths[start_row]).index(reach)
-        upstream_reaches = list(self.paths[start_row:end_row])
+        upstream_reaches = list(self.paths[start_row + 1:end_row])
         upstream_reaches.append(self.paths[start_row][start_col:])
         output = np.concatenate(upstream_reaches)
         return self._format_output(output, mode)
@@ -177,7 +176,7 @@ def main():
         output_file_root = r"..\Output\region_{}".format(region_id)
 
         catchment_raster = os.path.join(region_dir, "NHDPlusCatchment", "cat")
-        topology_file = r"..\Preprocessed\WatershedTopology\upstream_{}.npz".format(region_id)
+        topology_file = r"..\WatershedTopology\upstream_{}.npz".format(region_id)
 
         region = Navigator(topology_file)
         allocation = allocate(Raster(allocation_raster), Raster(catchment_raster), region, tile_size=300000)
