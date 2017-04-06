@@ -189,7 +189,6 @@ if __name__ == "__main__":
     time_it = True
     if time_it:
         import cProfile
-
         cProfile.run("main()")
     else:
         main()
