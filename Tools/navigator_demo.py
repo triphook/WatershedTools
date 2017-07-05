@@ -1,3 +1,5 @@
+"""This script shows how to calculate the number of reaches upstream of a target"""
+
 import os
 import sys
 sys.path.append('attribution_and_accumulation')
