@@ -1,16 +1,17 @@
+import os
 import sys
 sys.path.append('attribution_and_accumulation')
 
-
 from attribution_and_accumulation import Navigator
 
-region_id = '07'
-topology_file = r"../WatershedTopology/upstream_{}.npz".format(region_id)
+REGION_ID = '07'
+TOPOLOGY_FILE = "upstream_{}.npz".format(REGION_ID)
+TOPOLOGY_FILE = os.path.join("WatershedTopology", TOPOLOGY_FILE)
 
-region = Navigator(topology_file)
+REGION = Navigator(TOPOLOGY_FILE)
 
-test_reach = 4867727
+TEST_REACH = 4867727
 
-n = len(region.all_upstream(test_reach))
+N = len(REGION.all_upstream(TEST_REACH))
 
-print(n)
+print(N)
