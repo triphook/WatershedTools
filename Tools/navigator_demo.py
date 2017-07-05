@@ -1,7 +1,11 @@
-from Tools.attribution_and_accumulation import Navigator
+import sys
+sys.path.append('attribution_and_accumulation')
+
+
+from attribution_and_accumulation import Navigator
 
 region_id = '07'
-topology_file = r"..\WatershedTopology\upstream_{}.npz".format(region_id)
+topology_file = r"../WatershedTopology/upstream_{}.npz".format(region_id)
 
 region = Navigator(topology_file)
 
